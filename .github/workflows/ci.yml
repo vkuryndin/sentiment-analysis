@@ -95,7 +95,7 @@ jobs:
           fi
 
       - name: Publish verified image to GHCR
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/master'
         env:
           IMAGE: ${{ steps.image.outputs.name }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
