@@ -1,5 +1,6 @@
 """Keep Linux AMD64 native resources in the Docker-only Spring Boot JAR."""
 import io
+import re
 import sys
 from pathlib import Path
 from zipfile import ZipFile, ZIP_STORED
@@ -19,19 +20,27 @@ def slim_library(data, family):
             root = 'native/lib/'
             keep = root + 'linux-x86_64/cpu/'
             required = ['libtokenizers.so']
+            if root + 'tokenizers.properties' not in names:
+                raise ValueError('Missing DJL tokenizer metadata')
         for name in required:
             if keep + name not in names:
                 raise ValueError(f'Missing required native resource: {keep}{name}')
-        removed = [
-            n for n in names
-            if n.startswith(root)
-            and n != root
-            and n != root + 'tokenizers.properties'
-            and not n.startswith(keep)
-            and not keep.startswith(n)
-        ]
-        if not any(not n.endswith('/') for n in removed):
-            raise ValueError(f'No foreign platform binaries found in {family}')
+        # Remove only native binary files for other platforms. Preserve all
+        # metadata, notices, and directory entries, even in native folders.
+        def foreign_binary(name):
+            if not name.startswith(root) or name.startswith(keep):
+                return False
+            relative = name[len(root):]
+            if '/' not in relative or relative.endswith('/'):
+                return False
+            filename = relative.rsplit('/', 1)[-1].lower()
+            return (filename.endswith(('.dll', '.dylib', '.jnilib', '.so', '.a', '.lib', '.pdb'))
+                    or '.so.' in filename)
+
+        removed = [n for n in names if foreign_binary(n)]
+        if not removed:
+            print(f'{family}: already contains no removable foreign native binaries')
+            return data
         if any(n.upper().startswith('META-INF/') and n.upper().endswith(('.SF', '.RSA', '.DSA', '.EC')) for n in names):
             raise ValueError(f'Cannot modify signed JAR: {family}')
         excluded = set(removed)
@@ -47,11 +56,14 @@ def slim_library(data, family):
 
 
 def slim_boot_jar(source_path, target_path):
-    families = {'BOOT-INF/lib/onnxruntime-1.20.0.jar': 'onnxruntime',
-                'BOOT-INF/lib/tokenizers-0.39.0.jar': 'tokenizers'}
     with ZipFile(source_path) as source:
-        if not families.keys() <= set(source.namelist()):
-            raise ValueError('Expected ONNX Runtime and DJL dependencies not found')
+        families = {}
+        for family in ('onnxruntime', 'tokenizers'):
+            pattern = rf'BOOT-INF/lib/{family}-[0-9]+(?:\.[0-9]+)+(?:[-.][A-Za-z0-9]+)*\.jar'
+            matches = [name for name in source.namelist() if re.fullmatch(pattern, name)]
+            if len(matches) != 1:
+                raise ValueError(f'Expected exactly one {family} JAR, found: {matches}')
+            families[matches[0]] = family
         with ZipFile(target_path, 'w') as target:
             target.comment = source.comment
             for info in source.infolist():

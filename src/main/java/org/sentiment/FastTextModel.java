@@ -10,7 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.UnaryOperator;
 
-public class FastTextModel {
+public class FastTextModel implements AutoCloseable {
     private final FastTextWrapper.FastTextApi model;
     private final Map<String, String> labels;
     private final UnaryOperator<String> normalize;
@@ -22,7 +22,12 @@ public class FastTextModel {
         this.labels = Map.copyOf(labels);
         this.normalize = normalize;
         this.model = new FastTextWrapper.FastTextApi();
-        this.model.loadModel(path.toAbsolutePath().toString());
+        try {
+            this.model.loadModel(path.toAbsolutePath().toString());
+        } catch (RuntimeException | Error e) {
+            this.model.close();
+            throw e;
+        }
     }
 
     // Serialize calls to a model instance because its native wrapper's thread safety is not guaranteed.
@@ -42,6 +47,11 @@ public class FastTextModel {
             throw new IllegalStateException("Unexpected model label: " + label);
         }
         return sentiment;
+    }
+
+    @Override
+    public synchronized void close() {
+        model.close();
     }
 
     // Match the text normalization used to train the published Yelp model.

@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
+import tools.jackson.databind.json.JsonMapper;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,6 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class SentimentControllerTest {
     @LocalServerPort
     private int port;
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final HttpClient client = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -36,7 +40,7 @@ class SentimentControllerTest {
 
     private void assertSentiment(HttpResponse<String> response, String sentiment) {
         assertEquals(200, response.statusCode(), response.body());
-        assertEquals("{\"sentiment\":\"" + sentiment + "\"}", response.body());
+        assertEquals(JSON.readTree("{\"sentiment\":\"" + sentiment + "\"}"), JSON.readTree(response.body()));
     }
 
     @Test
@@ -108,8 +112,7 @@ class SentimentControllerTest {
                 .timeout(Duration.ofSeconds(10)).GET().build();
         var get = client.send(request, HttpResponse.BodyHandlers.ofString());
         var post = post("{\"text\":\"" + text + "\",\"lang\":\"ru\"}");
-        assertEquals(200, get.statusCode(), get.body());
-        assertEquals(200, post.statusCode(), post.body());
-        assertEquals(get.body(), post.body());
+        assertSentiment(get, "neutral");
+        assertSentiment(post, "neutral");
     }
 }

@@ -22,7 +22,9 @@ jobs:
         id: image
         shell: bash
         run: |
-          version=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)"$/\1/p' build.gradle.kts | tr -d '\r')
+          export JAVA_HOME="${JAVA_HOME_17_X64:?Java 17 is required on the runner}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          version=$(sh ./gradlew --no-daemon --quiet --console=plain printVersion)
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo 'Cannot read application version from build.gradle.kts' >&2
             exit 1
@@ -42,14 +44,18 @@ jobs:
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --tag "$IMAGE" .
 
-      - name: Smoke test Linux container
+      - name: Test final Linux container (HTTP API and metrics)
         env:
           IMAGE: ${{ steps.image.outputs.name }}
         run: |
-          docker run --detach --name sentiment-ci -p 127.0.0.1:8085:8085 "$IMAGE"
+          docker network create --internal sentiment-ci-net
+          docker run --detach --name sentiment-ci --network sentiment-ci-net "$IMAGE"
+          ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' sentiment-ci)
+          [[ -n "$ip" ]]
+          base="http://$ip:8085"
           ready=0
           for attempt in $(seq 1 60); do
-            if curl --fail --silent --max-time 3 http://127.0.0.1:8085/actuator/health | jq -e '.status == "UP"' >/dev/null; then
+            if curl --noproxy '*' --fail --silent --max-time 3 "$base/actuator/health" | jq -e '.status == "UP"' >/dev/null; then
               ready=1
               break
             fi
@@ -62,30 +68,7 @@ jobs:
             echo 'Container did not become healthy.' >&2
             exit 1
           fi
-          curl -fsS 'http://127.0.0.1:8085/api/sentiment?text=hello' | jq -e '.sentiment == "positive"'
-          curl -fsS -H 'Content-Type: application/json' \
-            --data '{"text":"Excellent food and friendly service. I absolutely loved this restaurant!"}' \
-            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "positive"'
-          curl -fsS -H 'Content-Type: application/json' \
-            --data '{"text":"Terrible food, rude staff and horrible service. I will never come back.","lang":"en"}' \
-            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "negative"'
-          curl -fsS --get --data-urlencode 'lang=ru' \
-            --data-urlencode 'text=Очень вкусная еда! Прекрасное обслуживание, всем рекомендую!' \
-            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "positive"'
-          curl -fsS -H 'Content-Type: application/json' \
-            --data '{"text":"Ужасный ресторан. Еда отвратительная, обслуживание ужасное!","lang":"ru"}' \
-            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "negative"'
-          curl -fsS -H 'Content-Type: application/json' \
-            --data '{"text":"Сегодня понедельник. Магазин открывается в девять часов.","lang":"ru"}' \
-            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "neutral"'
-          curl -fsS http://127.0.0.1:8085/actuator/prometheus > /tmp/sentiment-metrics.txt
-          grep '^sentiment_predictions_total{' /tmp/sentiment-metrics.txt
-          grep -E '^sentiment_predictions_total\{language="en",sentiment="positive"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
-          grep -E '^sentiment_predictions_total\{language="en",sentiment="negative"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
-          grep -E '^sentiment_predictions_total\{language="ru",sentiment="positive"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
-          grep -E '^sentiment_predictions_total\{language="ru",sentiment="negative"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
-          grep -E '^sentiment_predictions_total\{language="ru",sentiment="neutral"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
-          echo 'Container smoke tests: passed.' >> "$GITHUB_STEP_SUMMARY"
+          bash scripts/test-container.sh "$base"
 
       - name: Verify image size (strictly below 150 MB)
         env:
@@ -107,6 +90,9 @@ jobs:
           if docker container inspect sentiment-ci >/dev/null 2>&1; then
             docker logs sentiment-ci || true
             docker rm -f sentiment-ci
+          fi
+          if docker network inspect sentiment-ci-net >/dev/null 2>&1; then
+            docker network rm sentiment-ci-net
           fi
 
       - name: Publish verified image to GHCR

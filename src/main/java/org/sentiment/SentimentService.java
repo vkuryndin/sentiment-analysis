@@ -25,7 +25,12 @@ public class SentimentService {
         this.english = new FastTextModel(Path.of(modelPath),
                 Map.of("__label__1", "negative", "__label__2", "positive"),
                 FastTextModel::normalizeEnglish);
-        this.russian = new RubertModel(Path.of(russianDir));
+        try {
+            this.russian = new RubertModel(Path.of(russianDir));
+        } catch (RuntimeException | Error e) {
+            english.close();
+            throw e;
+        }
     }
 
     public String analyze(String text, String lang) {
@@ -46,6 +51,10 @@ public class SentimentService {
     }
     @PreDestroy
     public void close() throws OrtException {
-        russian.close();
+        try {
+            russian.close();
+        } finally {
+            english.close();
+        }
     }
 }

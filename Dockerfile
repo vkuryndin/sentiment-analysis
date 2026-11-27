@@ -7,19 +7,16 @@ COPY gradlew build.gradle.kts settings.gradle.kts ./
 COPY gradle/ ./gradle/
 COPY src/ ./src/
 COPY scripts/slim-linux-jar.py ./scripts/
+COPY models.sha256 ./
 
 # Download both models; local model binaries are excluded from the build context.
 ADD https://dl.fbaipublicfiles.com/fasttext/supervised-models/yelp_review_polarity.ftz /build/models/yelp_review_polarity.ftz
 ADD https://huggingface.co/onnx-community/rubert-tiny-sentiment-balanced-ONNX/resolve/main/onnx/model_quantized.onnx /build/models/rubert/model.onnx
 ADD https://huggingface.co/onnx-community/rubert-tiny-sentiment-balanced-ONNX/resolve/main/tokenizer.json /build/models/rubert/tokenizer.json
 ADD https://huggingface.co/onnx-community/rubert-tiny-sentiment-balanced-ONNX/resolve/main/config.json /build/models/rubert/config.json
-RUN test "$(wc -c < models/yelp_review_polarity.ftz)" -eq 1547836 && \
-    test "$(wc -c < models/rubert/model.onnx)" -eq 11965912 && \
-    test "$(wc -c < models/rubert/tokenizer.json)" -eq 705727 && \
-    test "$(wc -c < models/rubert/config.json)" -eq 968 && \
+RUN sha256sum --strict --check models.sha256 && \
     sh ./gradlew --no-daemon clean test bootJar && \
-    version=$(sed -n 's/^version = "\([0-9][0-9.]*\)"$/\1/p' build.gradle.kts | tr -d '\r') && \
-    python3 scripts/slim-linux-jar.py "build/libs/sentiment-analysis-$version.jar" /build/app.jar
+    python3 scripts/slim-linux-jar.py build/libs/sentiment-analysis.jar /build/app.jar
 
 # Same Java runtime as the verified English-only image.
 RUN jlink \
