@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-analysis
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sentiment-analysis
+  template:
+    metadata:
+      labels:
+        app: sentiment-analysis
+    spec:
+      containers:
+        - name: sentiment-analysis
+          image: ghcr.io/vkuryndin/sentiment-analysis:1.0.3
+          ports:
+            - name: http
+              containerPort: 8085
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
