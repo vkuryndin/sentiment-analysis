@@ -17,6 +17,34 @@
 
 `SentimentController` принимает HTTP-запросы, `SentimentService` проверяет входные данные и выбирает модель (`FastTextModel` или `RubertModel`). Сервис возвращает результат классификации и обновляет счётчик метрик.
 
+```mermaid
+flowchart LR
+    client["Клиент<br/>GET / POST /api/sentiment"]
+    subgraph app["Java 17 · Spring Boot"]
+        direction TB
+        controller["SentimentController<br/>REST API"]
+        service["SentimentService<br/>Валидация и выбор модели по lang"]
+        en["FastTextModel<br/>fastText · JFastText<br/>positive / negative"]
+        ru["RubertModel<br/>RuBERT Tiny INT8<br/>DJL Tokenizers · ONNX Runtime<br/>positive / negative / neutral"]
+        metrics["Micrometer<br/>Стандартные и прикладные метрики"]
+        actuator["Spring Boot Actuator<br/>/actuator/health<br/>/actuator/prometheus"]
+        controller <-->|"Запрос / результат"| service
+        service <-->|"en"| en
+        service <-->|"ru"| ru
+        service -.->|"Счётчик классификаций"| metrics
+        metrics --> actuator
+    end
+    client --> controller
+    controller --> response["JSON-ответ<br/>sentiment"]
+
+    classDef api fill:#e8f1fb,stroke:#3974a7,color:#173653;
+    classDef model fill:#e0f4ed,stroke:#26816c,color:#17483d;
+    classDef monitoring fill:#f0ebfa,stroke:#8265b2,color:#44306a;
+    class controller,service,client,response api;
+    class en,ru model;
+    class metrics,actuator monitoring;
+```
+
 ### Библиотеки и версии
 
 Зависимости версии приложения 1.0.3. Версии компонентов Spring и связанных библиотек определяются Spring Boot BOM 4.1.3; для Tomcat, Logback и Commons Codec заданы отдельные ограничения версий в `build.gradle.kts`.
@@ -110,9 +138,18 @@ Content-Type: application/json
 
 Многоэтапная Docker-сборка выполняется для Linux AMD64. Для уменьшения размера образа используются сокращённая Java Runtime (jlink), Distroless и скрипт `scripts/slim-linux-jar.py`, исключающий нативные библиотеки других платформ. Обе модели входят в образ. Приложение запускается от непривилегированного пользователя.
 
-GitHub Actions запускается вручную. Workflow собирает приложение и Docker-образ, выполняет автоматические тесты, проверяет REST API и метрики в запущенном контейнере без доступа к интернету, контролирует размер образа и публикует его в GHCR при успешном прохождении проверок из ветки `master`.
+### CI/CD
 
-По результатам контрольной сборки 27.11.2026 все проверки пройдены. Размер образа версии 1.0.3 — **142,23 МБ** (142 232 750 байт) при установленном ограничении 150 МБ.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускается вручную через GitHub Actions (`workflow_dispatch`). Версия Docker-образа берётся из `build.gradle.kts`.
+
+- Сборка приложения и Docker-образа, запуск автоматических тестов.
+- Проверка REST API и метрик в контейнере без доступа к интернету с помощью `scripts/test-container.sh`.
+- Проверка размера образа (строго менее 150 МБ).
+- Публикация образа в GHCR при успешном прохождении проверок из ветки `master`.
+
+Развёртывание приложения в Kubernetes выполняется вручную.
+
+Размер образа версии 1.0.3 — **142,23 МБ** (142 232 750 байт) при установленном ограничении 150 МБ.
 
 ### Запуск готового образа
 
@@ -125,7 +162,47 @@ docker run --rm -p 8085:8085 ghcr.io/vkuryndin/sentiment-analysis:1.0.3
 
 Actuator предоставляет стандартные метрики HTTP-запросов, JVM и CPU. При успешной классификации увеличивается счётчик `sentiment_predictions_total` с метками `language` и `sentiment`.
 
-Следующий этап проекта — развёртывание в Minikube с тремя репликами приложения, Service типа LoadBalancer, Ingress и Horizontal Pod Autoscaler (HPA), подключение Prometheus и создание дашборда Grafana.
+### Конфигурации Kubernetes
+
+Манифесты развёртывания находятся в каталоге `k8s/`.
+
+| Файл | Назначение |
+|---|---|
+| [`deployment.yaml`](k8s/deployment.yaml) | Развёртывание приложения с тремя репликами, настройка ресурсов, readiness probe и аннотаций Prometheus |
+| [`service.yaml`](k8s/service.yaml) | Service типа LoadBalancer, порт 80 с перенаправлением на порт приложения 8085 |
+| [`ingress.yaml`](k8s/ingress.yaml) | Маршрутизация запросов `/api` через Traefik |
+| [`hpa.yaml`](k8s/hpa.yaml) | Масштабирование от 3 до 5 реплик при целевом использовании CPU 40% от запрошенного ресурса |
+
+Применение манифестов в Minikube:
+
+```bash
+minikube kubectl -- apply -f k8s/deployment.yaml -f k8s/service.yaml -f k8s/ingress.yaml -f k8s/hpa.yaml
+```
+
+Для работы HPA необходим Metrics Server, для Ingress — Traefik, для доступа через LoadBalancer в Minikube — `minikube tunnel`.
+
+### Дашборды Grafana
+
+Prometheus собирает метрики каждой реплики приложения через `/actuator/prometheus`. В каталоге `k8s/` находятся два дашборда:
+
+| Файл | Назначение |
+|---|---|
+| [`sentiment-analysis-dashboard.json`](k8s/sentiment-analysis-dashboard.json) | Количество доступных реплик, HTTP-запросы, время ответа, ошибки, CPU и память подов, классификации по языкам и тональности |
+| [`sentiment-analysis-jvm-dashboard.json`](k8s/sentiment-analysis-jvm-dashboard.json) | JVM Heap, потоки Java, паузы GC, CPU Java-процесса, время работы приложения и загруженные классы |
+
+Оба JSON-файла импортируются в Grafana с выбором существующего источника данных Prometheus.
+
+### Нагрузочное тестирование
+
+Скрипт [`scripts/load-test.sh`](scripts/load-test.sh) предназначен для проверки работы приложения под нагрузкой и автоматического масштабирования HPA. Он отправляет восемь параллельных запросов на анализ русского текста в течение четырёх минут, с паузой 50 мс между группами запросов. Статистика выводится каждые пять секунд; при ошибке скрипт завершает работу после текущей группы запросов.
+
+Запуск из корня проекта:
+
+```bash
+bash scripts/load-test.sh
+```
+
+В скрипте указан адрес Ingress `10.100.148.160`. При изменении адреса кластера его необходимо актуализировать в скрипте.
 
 ## Документация
 
