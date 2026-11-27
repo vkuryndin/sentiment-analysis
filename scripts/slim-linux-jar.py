@@ -48,7 +48,7 @@ def slim_library(data, family):
 
 def slim_boot_jar(source_path, target_path):
     families = {'BOOT-INF/lib/onnxruntime-1.20.0.jar': 'onnxruntime',
-                'BOOT-INF/lib/tokenizers-0.34.0.jar': 'tokenizers'}
+                'BOOT-INF/lib/tokenizers-0.39.0.jar': 'tokenizers'}
     with ZipFile(source_path) as source:
         if not families.keys() <= set(source.namelist()):
             raise ValueError('Expected ONNX Runtime and DJL dependencies not found')
