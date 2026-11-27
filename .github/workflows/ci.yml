@@ -1,8 +1,6 @@
 name: Sentiment Analysis - Build, Test & Publish
 
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
 
 permissions:

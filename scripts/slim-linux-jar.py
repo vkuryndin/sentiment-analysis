@@ -22,7 +22,14 @@ def slim_library(data, family):
         for name in required:
             if keep + name not in names:
                 raise ValueError(f'Missing required native resource: {keep}{name}')
-        removed = [n for n in names if n.startswith(root) and n != root and not n.startswith(keep) and not keep.startswith(n)]
+        removed = [
+            n for n in names
+            if n.startswith(root)
+            and n != root
+            and n != root + 'tokenizers.properties'
+            and not n.startswith(keep)
+            and not keep.startswith(n)
+        ]
         if not any(not n.endswith('/') for n in removed):
             raise ValueError(f'No foreign platform binaries found in {family}')
         if any(n.upper().startswith('META-INF/') and n.upper().endswith(('.SF', '.RSA', '.DSA', '.EC')) for n in names):
