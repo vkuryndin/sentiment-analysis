@@ -1,0 +1,126 @@
+@baseUrl = http://localhost:8085
+
+### 01. Health — HTTP 200, status UP
+GET {{baseUrl}}/actuator/health
+Accept: application/json
+
+### 02. Positive review — HTTP 200, expected positive
+GET {{baseUrl}}/api/sentiment?text=Excellent%20food%20and%20friendly%20service.%20I%20absolutely%20loved%20this%20restaurant%21
+Accept: application/json
+
+### 03. Negative review — HTTP 200, expected negative
+GET {{baseUrl}}/api/sentiment?text=Terrible%20food%2C%20rude%20staff%20and%20horrible%20service.%20I%20will%20never%20come%20back.
+Accept: application/json
+
+### 04. Explicit English — HTTP 200, expected positive
+GET {{baseUrl}}/api/sentiment?text=Excellent%20food%20and%20friendly%20service.%20I%20absolutely%20loved%20this%20restaurant%21&lang=en
+Accept: application/json
+
+### 05. Example from the assignment — HTTP 200, expected positive (verified locally)
+GET {{baseUrl}}/api/sentiment?text=hello
+Accept: application/json
+
+### 06. Missing text — HTTP 400
+GET {{baseUrl}}/api/sentiment
+Accept: application/json
+
+### 07. Empty text — HTTP 400
+GET {{baseUrl}}/api/sentiment?text=
+Accept: application/json
+
+### 08. Blank text — HTTP 400
+GET {{baseUrl}}/api/sentiment?text=%20%20%20
+Accept: application/json
+
+### 09. Russian is not supported in version 1.0 — HTTP 400
+GET {{baseUrl}}/api/sentiment?text=Hello&lang=ru
+Accept: application/json
+
+### 10. POST positive review — HTTP 200, expected positive; default language
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+Accept: application/json
+
+{
+  "text": "Excellent food and friendly service. I absolutely loved this restaurant!"
+}
+
+### 11. POST negative review — HTTP 200, expected negative; explicit language
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+Accept: application/json
+
+{
+  "text": "Terrible food, rude staff and horrible service. I will never come back.",
+  "lang": "en"
+}
+
+### 12. POST multiline review — HTTP 200, expected positive
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+Accept: application/json
+
+{
+  "text": "Excellent food and friendly service.\nI absolutely loved this restaurant!\nThe staff was wonderful and the food was delicious. I highly recommend it.",
+  "lang": "en"
+}
+
+### 13. POST example from the assignment — HTTP 200, expected positive
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+Accept: application/json
+
+{
+  "text": "hello"
+}
+
+### 14. POST missing text — HTTP 400
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+
+{
+  "lang": "en"
+}
+
+### 15. POST empty text — HTTP 400
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+
+{
+  "text": ""
+}
+
+### 16. POST blank text — HTTP 400
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+
+{
+  "text": "  \n  "
+}
+
+### 17. POST unsupported language — HTTP 400
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+
+{
+  "text": "Hello",
+  "lang": "ru"
+}
+
+### 18. POST invalid JSON — HTTP 400
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+
+{"text": }
+
+### 19. Prometheus — HTTP 200; look for sentiment_predictions_total after successful analyses
+GET {{baseUrl}}/actuator/prometheus
+
+###  test
+POST http://localhost:8085/api/sentiment
+Content-Type: application/json
+
+{
+  "text": "Excellent food and friendly service. I absolutely loved this restaurant!",
+  "lang": "en"
+}
