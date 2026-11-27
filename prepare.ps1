@@ -28,10 +28,14 @@ function Download-File([string]$Url, [string]$Path, [string]$Sha256 = '') {
     }
 }
 
-New-Item -ItemType Directory -Force -Path 'gradle/wrapper', 'models' | Out-Null
+New-Item -ItemType Directory -Force -Path 'gradle/wrapper', 'models', 'models/rubert' | Out-Null
 $base = 'https://raw.githubusercontent.com/gradle/gradle/v8.14.3'
 Download-File "$base/gradlew" 'gradlew'
 Download-File "$base/gradlew.bat" 'gradlew.bat'
 Download-File "$base/gradle/wrapper/gradle-wrapper.jar" 'gradle/wrapper/gradle-wrapper.jar' '7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172'
 Download-File 'https://dl.fbaipublicfiles.com/fasttext/supervised-models/yelp_review_polarity.ftz' 'models/yelp_review_polarity.ftz'
-Write-Host "Ready. Model size: $((Get-Item 'models/yelp_review_polarity.ftz').Length) bytes."
+$ru = 'https://huggingface.co/onnx-community/rubert-tiny-sentiment-balanced-ONNX/resolve/main'
+Download-File "$ru/onnx/model_quantized.onnx" 'models/rubert/model.onnx'
+Download-File "$ru/tokenizer.json" 'models/rubert/tokenizer.json'
+Download-File "$ru/config.json" 'models/rubert/config.json'
+Get-ChildItem models, models/rubert -File | Select-Object Name, Length

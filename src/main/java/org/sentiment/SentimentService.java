@@ -1,5 +1,7 @@
 package org.sentiment;
 
+import ai.onnxruntime.OrtException;
+import jakarta.annotation.PreDestroy;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -12,16 +14,18 @@ import java.util.Map;
 
 @Service
 public class SentimentService {
-    private final Map<String, FastTextModel> models;
+    private final FastTextModel english;
+    private final RubertModel russian;
     private final MeterRegistry metrics;
 
     public SentimentService(@Value("${sentiment.model.en-path}") String modelPath,
+                            @Value("${sentiment.model.ru-dir}") String russianDir,
                             MeterRegistry metrics) {
         this.metrics = metrics;
-        // Register the Russian model here when it is ready (version 1.1).
-        this.models = Map.of("en", new FastTextModel(Path.of(modelPath),
+        this.english = new FastTextModel(Path.of(modelPath),
                 Map.of("__label__1", "negative", "__label__2", "positive"),
-                FastTextModel::normalizeEnglish));
+                FastTextModel::normalizeEnglish);
+        this.russian = new RubertModel(Path.of(russianDir));
     }
 
     public String analyze(String text, String lang) {
@@ -31,14 +35,17 @@ public class SentimentService {
         }
 
         String language = lang.strip().toLowerCase(Locale.ROOT);
-        FastTextModel model = models.get(language);
-        if (model == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported language");
-        }
-
-        String sentiment = model.predict(text);
+        String sentiment = switch (language) {
+            case "en" -> english.predict(text);
+            case "ru" -> russian.predict(text);
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported language");
+        };
         metrics.counter("sentiment.predictions", "language", language, "sentiment", sentiment)
                 .increment();
         return sentiment;
+    }
+    @PreDestroy
+    public void close() throws OrtException {
+        russian.close();
     }
 }

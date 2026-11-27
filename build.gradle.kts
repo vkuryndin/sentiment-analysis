@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "org.sentiment"
-version = "1.0.1"
+version = "1.0.2"
 
 java {
     toolchain {
@@ -21,6 +21,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("com.github.vinhkhuc:jfasttext:0.5")
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
+    implementation("ai.djl.huggingface:tokenizers:0.34.0")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")

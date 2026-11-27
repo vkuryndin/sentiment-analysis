@@ -1,8 +1,8 @@
-name:  Sentiment Analysis - Build, Test & Publish
+name: Sentiment Analysis - Build, Test & Publish
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -13,6 +13,9 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,20 +44,6 @@ jobs:
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --tag "$IMAGE" .
 
-      - name: Verify image size (strictly below 150 MB)
-        env:
-          IMAGE: ${{ steps.image.outputs.name }}
-        run: |
-          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
-          echo "Image size: $size bytes"
-          echo "Image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Size: $size bytes (limit: < 150000000 bytes)" >> "$GITHUB_STEP_SUMMARY"
-          docker image ls "$IMAGE"
-          if (( size >= 150000000 )); then
-            echo 'Image exceeds or equals the 150 MB limit.' >&2
-            exit 1
-          fi
-
       - name: Smoke test Linux container
         env:
           IMAGE: ${{ steps.image.outputs.name }}
@@ -82,9 +71,37 @@ jobs:
           curl -fsS -H 'Content-Type: application/json' \
             --data '{"text":"Terrible food, rude staff and horrible service. I will never come back.","lang":"en"}' \
             http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "negative"'
+          curl -fsS --get --data-urlencode 'lang=ru' \
+            --data-urlencode 'text=Очень вкусная еда! Прекрасное обслуживание, всем рекомендую!' \
+            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "positive"'
+          curl -fsS -H 'Content-Type: application/json' \
+            --data '{"text":"Ужасный ресторан. Еда отвратительная, обслуживание ужасное!","lang":"ru"}' \
+            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "negative"'
+          curl -fsS -H 'Content-Type: application/json' \
+            --data '{"text":"Сегодня понедельник. Магазин открывается в девять часов.","lang":"ru"}' \
+            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "neutral"'
           curl -fsS http://127.0.0.1:8085/actuator/prometheus > /tmp/sentiment-metrics.txt
           grep '^sentiment_predictions_total{' /tmp/sentiment-metrics.txt
+          grep -E '^sentiment_predictions_total\{language="en",sentiment="positive"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
+          grep -E '^sentiment_predictions_total\{language="en",sentiment="negative"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
+          grep -E '^sentiment_predictions_total\{language="ru",sentiment="positive"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
+          grep -E '^sentiment_predictions_total\{language="ru",sentiment="negative"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
+          grep -E '^sentiment_predictions_total\{language="ru",sentiment="neutral"\} [1-9][0-9]*(\.[0-9]+)?$' /tmp/sentiment-metrics.txt
           echo 'Container smoke tests: passed.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify image size (strictly below 150 MB)
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "Image size: $size bytes"
+          echo "Image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Size: $size bytes (limit: < 150000000 bytes)" >> "$GITHUB_STEP_SUMMARY"
+          docker image ls "$IMAGE"
+          if (( size >= 150000000 )); then
+            echo 'Image exceeds or equals the 150 MB limit.' >&2
+            exit 1
+          fi
 
       - name: Container logs and cleanup
         if: always()

@@ -74,7 +74,7 @@ class SentimentControllerTest {
 
     @Test
     void rejectsUnsupportedLanguage() throws Exception {
-        assertEquals(400, post("{\"text\":\"Hello\",\"lang\":\"ru\"}").statusCode());
+        assertEquals(400, post("{\"text\":\"Hello\",\"lang\":\"de\"}").statusCode());
     }
 
     @Test
@@ -85,5 +85,31 @@ class SentimentControllerTest {
     @Test
     void rejectsTextOverLimit() throws Exception {
         assertEquals(400, post("{\"text\":\"" + "a".repeat(2001) + "\"}").statusCode());
+    }
+    @Test
+    void russianPositiveReview() throws Exception {
+        assertSentiment(post("""
+                {"text":"Очень вкусная еда! Прекрасное обслуживание, всем рекомендую!","lang":"ru"}
+                """), "positive");
+    }
+
+    @Test
+    void russianNegativeReview() throws Exception {
+        assertSentiment(post("""
+                {"text":"Ужасный ресторан. Еда отвратительная, обслуживание ужасное!","lang":"ru"}
+                """), "negative");
+    }
+
+    @Test
+    void russianGetMatchesPost() throws Exception {
+        String text = "Сегодня понедельник. Магазин открывается в девять часов.";
+        String encoded = java.net.URLEncoder.encode(text, java.nio.charset.StandardCharsets.UTF_8);
+        var request = HttpRequest.newBuilder(URI.create(endpoint() + "?lang=ru&text=" + encoded))
+                .timeout(Duration.ofSeconds(10)).GET().build();
+        var get = client.send(request, HttpResponse.BodyHandlers.ofString());
+        var post = post("{\"text\":\"" + text + "\",\"lang\":\"ru\"}");
+        assertEquals(200, get.statusCode(), get.body());
+        assertEquals(200, post.statusCode(), post.body());
+        assertEquals(get.body(), post.body());
     }
 }

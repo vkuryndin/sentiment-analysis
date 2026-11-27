@@ -1,8 +1,16 @@
+# Gradle
 .gradle/
 build/
+
+# IntelliJ IDEA
 .idea/
 *.iml
 out/
+
+# ML models
 models/*.ftz
 models/*.bin
+models/rubert/
+
+# Temporary download files
 *.download

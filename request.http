@@ -32,8 +32,8 @@ Accept: application/json
 GET {{baseUrl}}/api/sentiment?text=%20%20%20
 Accept: application/json
 
-### 09. Russian is not supported in version 1.0 — HTTP 400
-GET {{baseUrl}}/api/sentiment?text=Hello&lang=ru
+### 09. Unsupported language — HTTP 400
+GET {{baseUrl}}/api/sentiment?text=Hello&lang=de
 Accept: application/json
 
 ### 10. POST positive review — HTTP 200, expected positive; default language
@@ -104,7 +104,7 @@ Content-Type: application/json
 
 {
   "text": "Hello",
-  "lang": "ru"
+  "lang": "de"
 }
 
 ### 18. POST invalid JSON — HTTP 400
@@ -113,14 +113,36 @@ Content-Type: application/json
 
 {"text": }
 
-### 19. Prometheus — HTTP 200; look for sentiment_predictions_total after successful analyses
-GET {{baseUrl}}/actuator/prometheus
-
-###  test
-POST http://localhost:8085/api/sentiment
+### 19. Russian positive review — HTTP 200, expected positive
+POST {{baseUrl}}/api/sentiment
 Content-Type: application/json
 
 {
-  "text": "Excellent food and friendly service. I absolutely loved this restaurant!",
-  "lang": "en"
+  "text": "Очень вкусная еда! Прекрасное обслуживание, всем рекомендую!",
+  "lang": "ru"
 }
+
+### 20. Russian negative review — HTTP 200, expected negative
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+
+{
+  "text": "Ужасный ресторан. Еда отвратительная, обслуживание ужасное!",
+  "lang": "ru"
+}
+
+### 21. Russian neutral text — HTTP 200, expected neutral
+POST {{baseUrl}}/api/sentiment
+Content-Type: application/json
+
+{
+  "text": "Сегодня понедельник. Магазин открывается в девять часов.",
+  "lang": "ru"
+}
+
+### 22. Russian GET — HTTP 200
+GET {{baseUrl}}/api/sentiment?lang=ru&text=%D0%9E%D1%82%D0%BB%D0%B8%D1%87%D0%BD%D0%BE
+Accept: application/json
+
+### 23. Prometheus — HTTP 200; look for sentiment_predictions_total after successful analyses
+GET {{baseUrl}}/actuator/prometheus

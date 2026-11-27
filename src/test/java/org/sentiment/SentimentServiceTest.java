@@ -3,6 +3,7 @@ package org.sentiment;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterAll;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -17,7 +18,8 @@ class SentimentServiceTest {
     static void loadModel() {
         String path = System.getenv().getOrDefault("SENTIMENT_MODEL_EN_PATH",
                 "models/yelp_review_polarity.ftz");
-        service = new SentimentService(path, METRICS);
+        String ruDir = System.getenv().getOrDefault("SENTIMENT_MODEL_RU_DIR", "models/rubert");
+        service = new SentimentService(path, ruDir, METRICS);
     }
 
     @Test
@@ -46,7 +48,7 @@ class SentimentServiceTest {
     @Test
     void rejectsUnsupportedLanguage() {
         assertEquals(HttpStatus.BAD_REQUEST,
-                assertThrows(ResponseStatusException.class, () -> service.analyze("Hello", "ru")).getStatusCode());
+                assertThrows(ResponseStatusException.class, () -> service.analyze("Hello", "de")).getStatusCode());
     }
 
     @Test
@@ -54,5 +56,32 @@ class SentimentServiceTest {
         double before = METRICS.counter("sentiment.predictions", "language", "en", "sentiment", "positive").count();
         service.analyze("Excellent food and friendly service. I absolutely loved this restaurant!", "en");
         assertEquals(before + 1, METRICS.counter("sentiment.predictions", "language", "en", "sentiment", "positive").count());
+    }
+    @AfterAll
+    static void closeModel() throws Exception {
+        if (service != null) service.close();
+        METRICS.close();
+    }
+
+    @Test
+    void russianPositiveReview() {
+        assertEquals("positive", service.analyze("Очень вкусная еда! Прекрасное обслуживание, всем рекомендую!", "ru"));
+    }
+
+    @Test
+    void russianNegativeReview() {
+        assertEquals("negative", service.analyze("Ужасный ресторан. Еда отвратительная, обслуживание ужасное!", "ru"));
+    }
+
+    @Test
+    void russianNeutralText() {
+        assertEquals("neutral", service.analyze("Сегодня понедельник. Магазин открывается в девять часов.", "ru"));
+    }
+
+    @Test
+    void russianLongTextIsHandled() {
+        String text = "я ".repeat(900);
+        org.junit.jupiter.api.Assertions.assertTrue(java.util.Set.of("positive", "negative", "neutral")
+                .contains(service.analyze(text, "ru")));
     }
 }

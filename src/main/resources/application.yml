@@ -7,6 +7,7 @@ server:
 
 sentiment:
   model:
+    ru-dir: ${SENTIMENT_MODEL_RU_DIR:models/rubert}
     en-path: ${SENTIMENT_MODEL_EN_PATH:models/yelp_review_polarity.ftz}
 
 management:
