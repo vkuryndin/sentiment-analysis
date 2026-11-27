@@ -1,0 +1,106 @@
+name: Build, test and publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Image name and version
+        id: image
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)"$/\1/p' build.gradle.kts | tr -d '\r')
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Cannot read application version from build.gradle.kts' >&2
+            exit 1
+          fi
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:$version"
+          echo "name=$image" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker image and run Gradle tests
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.image.outputs.version }}
+        run: |
+          docker build --platform linux/amd64 --progress=plain \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$IMAGE" .
+
+      - name: Verify image size (strictly below 150 MB)
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "Image size: $size bytes"
+          echo "Image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Size: $size bytes (limit: < 150000000 bytes)" >> "$GITHUB_STEP_SUMMARY"
+          docker image ls "$IMAGE"
+          if (( size >= 150000000 )); then
+            echo 'Image exceeds or equals the 150 MB limit.' >&2
+            exit 1
+          fi
+
+      - name: Smoke test Linux container
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          docker run --detach --name sentiment-ci -p 127.0.0.1:8085:8085 "$IMAGE"
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --max-time 3 http://127.0.0.1:8085/actuator/health | jq -e '.status == "UP"' >/dev/null; then
+              ready=1
+              break
+            fi
+            if [[ $(docker inspect -f '{{.State.Running}}' sentiment-ci) != true ]]; then
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$ready" != 1 ]]; then
+            echo 'Container did not become healthy.' >&2
+            exit 1
+          fi
+          curl -fsS 'http://127.0.0.1:8085/api/sentiment?text=hello' | jq -e '.sentiment == "positive"'
+          curl -fsS -H 'Content-Type: application/json' \
+            --data '{"text":"Excellent food and friendly service. I absolutely loved this restaurant!"}' \
+            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "positive"'
+          curl -fsS -H 'Content-Type: application/json' \
+            --data '{"text":"Terrible food, rude staff and horrible service. I will never come back.","lang":"en"}' \
+            http://127.0.0.1:8085/api/sentiment | jq -e '.sentiment == "negative"'
+          curl -fsS http://127.0.0.1:8085/actuator/prometheus > /tmp/sentiment-metrics.txt
+          grep '^sentiment_predictions_total{' /tmp/sentiment-metrics.txt
+          echo 'Container smoke tests: passed.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Container logs and cleanup
+        if: always()
+        run: |
+          if docker container inspect sentiment-ci >/dev/null 2>&1; then
+            docker logs sentiment-ci || true
+            docker rm -f sentiment-ci
+          fi
+
+      - name: Publish verified image to GHCR
+        if: github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE"
+          docker logout ghcr.io
+          echo "Published: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
